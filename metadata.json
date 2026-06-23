@@ -1,0 +1,6 @@
+{
+  "name": "ComputeInfra",
+  "description": "Decentralized AI infrastructure layer powering intelligent applications through distributed compute and browser-native runtime execution.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
