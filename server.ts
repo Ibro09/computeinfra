@@ -15,7 +15,7 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import bs58 from "bs58";
-
+import { handler as netlifyHandler } from "./netlify/functions/api";
 
 
 dotenv.config();
@@ -23,6 +23,34 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+app.all(["/api/*", "/health"], async (req, res) => {
+  const host = req.get("host") || "localhost";
+  const url = new URL(`${req.protocol}://${host}${req.originalUrl}`);
+  const bodyText = typeof req.body === "string"
+    ? req.body
+    : JSON.stringify(req.body ?? {});
+
+  const event = {
+    httpMethod: req.method,
+    path: req.originalUrl,
+    headers: Object.fromEntries(
+      Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value ?? "")])
+    ),
+    body: req.method === "GET" || req.method === "HEAD" ? undefined : bodyText,
+    queryStringParameters: Object.fromEntries(url.searchParams.entries()),
+    isBase64Encoded: false,
+  } as any;
+
+  const result = await netlifyHandler(event);
+  for (const [key, value] of Object.entries(result.headers || {})) {
+    if (typeof value === "string") {
+      res.setHeader(key, value);
+    }
+  }
+
+  res.status(result.statusCode || 200).send(result.body || "");
+});
 
 // Initialize GoogleGenAI client
 const aiGenAI = new GoogleGenAI({
