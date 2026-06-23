@@ -30,6 +30,10 @@ type StoredUser = {
 
 const memoryStore = ((globalThis as any).__computeInfraNetlifyUsers ||= {}) as Record<string, StoredUser>;
 
+function normalizeEmail(email: string) {
+  return String(email || "").trim().toLowerCase();
+}
+
 function buildDefaultUser(email: string): StoredUser {
   const short = email.replace(/[^a-zA-Z0-9]/g, "").slice(0, 7).toUpperCase();
   return {
@@ -73,14 +77,16 @@ function verifyPassword(password: string, storedHash: string) {
 }
 
 function getUser(email: string): StoredUser {
-  if (!memoryStore[email]) {
-    memoryStore[email] = buildDefaultUser(email);
+  const normalizedEmail = normalizeEmail(email);
+  if (!memoryStore[normalizedEmail]) {
+    memoryStore[normalizedEmail] = buildDefaultUser(normalizedEmail);
   }
-  return memoryStore[email];
+  return memoryStore[normalizedEmail];
 }
 
 function updateUser(email: string, updateData: Partial<StoredUser>) {
-  const user = getUser(email);
+  const normalizedEmail = normalizeEmail(email);
+  const user = getUser(normalizedEmail);
   Object.assign(user, updateData);
   return user;
 }
@@ -153,6 +159,18 @@ async function getChatGPTResponse(prompt: string, model: string, temperature: nu
   });
 }
 
+function buildFallbackChatReply(message: string, selectedModel: string) {
+  const trimmed = String(message || "").trim();
+  const safePrompt = trimmed.length > 90 ? `${trimmed.slice(0, 87)}...` : trimmed;
+  const modelLabel = selectedModel || "DEEPSEEK";
+
+  if (!safePrompt) {
+    return `The ${modelLabel} shard is ready. Send a message and I’ll help you continue the workflow.`;
+  }
+
+  return `The ${modelLabel} shard is currently running in local fallback mode, but I can still help with your request: "${safePrompt}". I’ll keep the response concise and practical while the main model service is unavailable.`;
+}
+
 async function getChatResponse(message: string, selectedModel: string, temperature: number) {
   const geminiApiKey = process.env.GEMINI_API_KEY;
   if (geminiApiKey) {
@@ -163,13 +181,13 @@ async function getChatResponse(message: string, selectedModel: string, temperatu
       } else if (selectedModel === "DEEPSEEK") {
         systemCtx = "You are DeepSeek-R1-Cognitive running on a decentralized computer shard. Emphasize flawless reasoning, deep analysis, step-by-step logic, and intellectual prowess.";
       } else if (selectedModel === "QWEN-2.5") {
-        systemCtx = "You are Qwen-2.5-Coder running on a decentralized computer shard. Act as a elite coding expert, providing high-fidelity, high-efficiency, perfectly compiled programming blocks and answers.";
+        systemCtx = "You are Qwen-2.5-Coder running on a decentralized computer shard. Act as an elite coding expert, providing high-fidelity, high-efficiency, perfectly compiled programming blocks and answers.";
       } else {
         systemCtx = "You are a decentralized CPU/GPU computing shard. Deliver highly intelligent, technically precise and helpful answers.";
       }
 
       const response = await aiGenAI.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         contents: message,
         config: {
           systemInstruction: `${systemCtx} Always answer user questions comprehensively and accurately. Do NOT output mock metadata headers inside your final output body. Output directly in clean, readable Markdown syntax.`,
@@ -184,7 +202,7 @@ async function getChatResponse(message: string, selectedModel: string, temperatu
         return await getChatGPTResponse(message, selectedModel, temperature);
       } catch (chatgptErr: any) {
         console.error("ChatGPT fallback also failed", chatgptErr);
-        return `[Inference Fallback due to API error: ${chatgptErr.message}]\n\nUnable to obtain network weight consensus. Please try again later.`;
+        return buildFallbackChatReply(message, selectedModel);
       }
     }
   }
@@ -193,7 +211,7 @@ async function getChatResponse(message: string, selectedModel: string, temperatu
     return await getChatGPTResponse(message, selectedModel, temperature);
   } catch (err: any) {
     console.error("ChatGPT fallback also failed", err);
-    return `[Inference Fallback: No valid model API key configured]\n\nUnable to obtain network weight consensus. Please try again later.`;
+    return buildFallbackChatReply(message, selectedModel);
   }
 }
 
@@ -240,7 +258,7 @@ export const handler = async (event: any) => {
         return jsonResponse(400, { success: false, error: "Email is required." });
       }
 
-      const normalizedEmail = String(email).trim().toLowerCase();
+      const normalizedEmail = normalizeEmail(email);
       const normalizedAddress = typeof address === "string" ? address.trim() : "";
       const passwordValue = typeof password === "string" ? password : "";
       const mode = body.mode || "register";
@@ -289,8 +307,9 @@ export const handler = async (event: any) => {
       if (!email) {
         return jsonResponse(400, { success: false, error: "Email is required." });
       }
-      const existingUser = getUser(email);
-      const user = updateUser(email, {
+      const normalizedEmail = normalizeEmail(email);
+      const existingUser = getUser(normalizedEmail);
+      const user = updateUser(normalizedEmail, {
         earnings: Number(earnings ?? 0),
         jobsCompleted: Number(jobsCompleted ?? 0),
         tokensProcessed: Number(tokensProcessed ?? 0),
@@ -305,7 +324,8 @@ export const handler = async (event: any) => {
       if (!email) {
         return jsonResponse(400, { success: false, error: "Email is required." });
       }
-      const user = getUser(email);
+      const normalizedEmail = normalizeEmail(email);
+      const user = getUser(normalizedEmail);
       const addedBalance = user.earnings;
       user.balance = Number((user.balance + addedBalance).toFixed(6));
       user.earnings = 0;
@@ -326,7 +346,8 @@ export const handler = async (event: any) => {
       if (!email || !address) {
         return jsonResponse(400, { success: false, error: "Email and wallet address are required." });
       }
-      const user = updateUser(email, { address });
+      const normalizedEmail = normalizeEmail(email);
+      const user = updateUser(normalizedEmail, { address });
       return jsonResponse(200, { success: true, user });
     }
 
@@ -336,7 +357,8 @@ export const handler = async (event: any) => {
       if (!email || !recipient || !amount) {
         return jsonResponse(400, { success: false, error: "Missing payload arguments." });
       }
-      const user = getUser(email);
+      const normalizedEmail = normalizeEmail(email);
+      const user = getUser(normalizedEmail);
       const payVal = Number(amount);
       if (isNaN(payVal) || payVal <= 0) {
         return jsonResponse(400, { success: false, error: "Invalid payment amount." });
@@ -362,7 +384,8 @@ export const handler = async (event: any) => {
       if (!email || !amount || !address) {
         return jsonResponse(400, { success: false, error: "Missing withdrawal details." });
       }
-      const user = getUser(email);
+      const normalizedEmail = normalizeEmail(email);
+      const user = getUser(normalizedEmail);
       const withdrawVal = Number(amount);
       if (isNaN(withdrawVal) || withdrawVal <= 0) {
         return jsonResponse(400, { success: false, error: "Invalid amount." });
@@ -388,7 +411,8 @@ export const handler = async (event: any) => {
       if (!email || !message) {
         return jsonResponse(400, { success: false, error: "Missing required chat parameters." });
       }
-      const user = getUser(email);
+      const normalizedEmail = normalizeEmail(email);
+      const user = getUser(normalizedEmail);
       user.chatHistory.push(message);
       return jsonResponse(200, { success: true, chatHistory: user.chatHistory });
     }
@@ -399,7 +423,8 @@ export const handler = async (event: any) => {
       if (!email) {
         return jsonResponse(400, { success: false, error: "Missing email." });
       }
-      const user = getUser(email);
+      const normalizedEmail = normalizeEmail(email);
+      const user = getUser(normalizedEmail);
       user.chatHistory = [
         {
           id: "clear",
@@ -417,7 +442,8 @@ export const handler = async (event: any) => {
       if (!email) {
         return jsonResponse(400, { success: false, error: "Email is required." });
       }
-      const user = getUser(email);
+      const normalizedEmail = normalizeEmail(email);
+      const user = getUser(normalizedEmail);
       return jsonResponse(200, { success: true, chatHistory: user.chatHistory || [] });
     }
 
@@ -451,7 +477,8 @@ export const handler = async (event: any) => {
         hash: `0x${Math.random().toString(16).slice(2, 10)}...${Math.random().toString(16).slice(2, 6)}`,
       };
 
-      const user = getUser(email);
+      const normalizedEmail = normalizeEmail(email);
+      const user = getUser(normalizedEmail);
       user.chatHistory.push(userMsg);
       user.chatHistory.push(nodeMsg);
 
