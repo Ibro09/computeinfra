@@ -1,18 +1,8 @@
 import https from "https";
 import dotenv from "dotenv";
-import { GoogleGenAI } from "@google/genai";
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 
 dotenv.config();
-
-const aiGenAI = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || "",
-  httpOptions: {
-    headers: {
-      "User-Agent": "computeinfra-netlify",
-    },
-  },
-});
 
 type StoredUser = {
   email: string;
@@ -89,6 +79,74 @@ function updateUser(email: string, updateData: Partial<StoredUser>) {
   const user = getUser(normalizedEmail);
   Object.assign(user, updateData);
   return user;
+}
+
+async function getGeminiResponse(prompt: string, systemCtx: string, temperature: number) {
+  const apiKey = process.env.GEMINI_API_KEY || "";
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not configured.");
+  }
+
+  const body = JSON.stringify({
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: {
+      temperature,
+      maxOutputTokens: 2048,
+    },
+    systemInstruction: {
+      parts: [{ text: systemCtx }],
+    },
+  });
+
+  return new Promise<string>((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: "generativelanguage.googleapis.com",
+        path: `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+        res.on("end", () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed?.error) {
+              reject(new Error(parsed.error.message || "Gemini request failed."));
+              return;
+            }
+            const reply = parsed?.candidates?.[0]?.content?.parts?.map((part: any) => part.text).join("") || "";
+            if (!reply) {
+              reject(new Error("Gemini returned an empty response."));
+              return;
+            }
+            resolve(reply);
+          } catch (err: any) {
+            reject(err);
+          }
+        });
+      },
+    );
+
+    req.setTimeout(10000, () => {
+      req.destroy(new Error("Gemini request timed out."));
+    });
+
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
 }
 
 async function getChatGPTResponse(prompt: string, model: string, temperature: number) {
@@ -186,16 +244,11 @@ async function getChatResponse(message: string, selectedModel: string, temperatu
         systemCtx = "You are a decentralized CPU/GPU computing shard. Deliver highly intelligent, technically precise and helpful answers.";
       }
 
-      const response = await aiGenAI.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: message,
-        config: {
-          systemInstruction: `${systemCtx} Always answer user questions comprehensively and accurately. Do NOT output mock metadata headers inside your final output body. Output directly in clean, readable Markdown syntax.`,
-          temperature,
-        },
-      });
-
-      return response.text || "No inference response received from the model.";
+      return await getGeminiResponse(
+        message,
+        `${systemCtx} Always answer user questions comprehensively and accurately. Do NOT output mock metadata headers inside your final output body. Output directly in clean, readable Markdown syntax.`,
+        temperature,
+      );
     } catch (err: any) {
       console.error("Gemini API call failed, trying ChatGPT fallback", err);
       try {
