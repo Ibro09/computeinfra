@@ -215,15 +215,19 @@ async function getChatResponse(message: string, selectedModel: string, temperatu
   }
 }
 
-function parseEventBody(body: any) {
+function parseEventBody(event: any) {
+  const body = event?.body;
   if (!body) return {};
+
   if (typeof body === "string") {
+    const rawBody = event?.isBase64Encoded ? Buffer.from(body, "base64").toString("utf8") : body;
     try {
-      return JSON.parse(body);
+      return JSON.parse(rawBody);
     } catch {
       return {};
     }
   }
+
   if (typeof body === "object") return body;
   return {};
 }
@@ -265,7 +269,7 @@ export const handler = async (event: any) => {
     }
 
     if (method === "POST" && pathname === "/api/auth/register-or-login") {
-      const body = parseEventBody(event.body);
+      const body = parseEventBody(event);
       const { email, address, password } = body;
       if (!email) {
         return jsonResponse(400, { success: false, error: "Email is required." });
@@ -315,7 +319,7 @@ export const handler = async (event: any) => {
     }
 
     if (method === "POST" && pathname === "/api/user/sync") {
-      const body = parseEventBody(event.body);
+      const body = parseEventBody(event);
       const { email, earnings, jobsCompleted, tokensProcessed, balance } = body;
       if (!email) {
         return jsonResponse(400, { success: false, error: "Email is required." });
@@ -332,7 +336,7 @@ export const handler = async (event: any) => {
     }
 
     if (method === "POST" && pathname === "/api/user/harvest") {
-      const body = parseEventBody(event.body);
+      const body = parseEventBody(event);
       const { email } = body;
       if (!email) {
         return jsonResponse(400, { success: false, error: "Email is required." });
@@ -354,7 +358,7 @@ export const handler = async (event: any) => {
     }
 
     if (method === "POST" && pathname === "/api/user/update-wallet") {
-      const body = parseEventBody(event.body);
+      const body = parseEventBody(event);
       const { email, address } = body;
       if (!email || !address) {
         return jsonResponse(400, { success: false, error: "Email and wallet address are required." });
@@ -365,7 +369,7 @@ export const handler = async (event: any) => {
     }
 
     if (method === "POST" && pathname === "/api/user/pay") {
-      const body = parseEventBody(event.body);
+      const body = parseEventBody(event);
       const { email, recipient, amount } = body;
       if (!email || !recipient || !amount) {
         return jsonResponse(400, { success: false, error: "Missing payload arguments." });
@@ -392,7 +396,7 @@ export const handler = async (event: any) => {
     }
 
     if (method === "POST" && pathname === "/api/user/withdraw") {
-      const body = parseEventBody(event.body);
+      const body = parseEventBody(event);
       const { email, amount, address } = body;
       if (!email || !amount || !address) {
         return jsonResponse(400, { success: false, error: "Missing withdrawal details." });
@@ -419,7 +423,7 @@ export const handler = async (event: any) => {
     }
 
     if (method === "POST" && pathname === "/api/user/chat/save") {
-      const body = parseEventBody(event.body);
+      const body = parseEventBody(event);
       const { email, message } = body;
       if (!email || !message) {
         return jsonResponse(400, { success: false, error: "Missing required chat parameters." });
@@ -431,7 +435,7 @@ export const handler = async (event: any) => {
     }
 
     if (method === "POST" && pathname === "/api/user/chat/clear") {
-      const body = parseEventBody(event.body);
+      const body = parseEventBody(event);
       const { email } = body;
       if (!email) {
         return jsonResponse(400, { success: false, error: "Missing email." });
@@ -461,7 +465,7 @@ export const handler = async (event: any) => {
     }
 
     if (method === "POST" && pathname === "/api/user/chat/respond") {
-      const body = parseEventBody(event.body);
+      const body = parseEventBody(event);
       const { email, message, model, temperature, maxTokens } = body;
       if (!email || !message) {
         return jsonResponse(400, { success: false, error: "Missing required chat parameters." });
