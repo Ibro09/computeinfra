@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, FormEvent } from "react";
+﻿import { useState, useEffect, useRef, FormEvent } from "react";
 import Markdown from "react-markdown";
 import {
   Send,
@@ -79,7 +79,7 @@ export default function ChatPage({
   onStartProject,
   onBackToLanding,
 }: ChatPageProps) {
-  const [selectedModel, setSelectedModel] = useState("DEEPSEEK");
+  const selectedModel = "GPT";
   const [chatInput, setChatInput] = useState("");
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(2048);
@@ -144,7 +144,7 @@ export default function ChatPage({
             id: Math.random().toString(),
             sender: "system",
             time: timeStr,
-            text: `🔓 UNBLOCKED_MEMBER_PIPELINE: Node authorized under signature identifier (${userEmail}). Unrestrained cognitive queries now active.`,
+            text: `UNBLOCKED_MEMBER_PIPELINE: Node authorized under signature identifier (${userEmail}). Unrestrained cognitive queries now active.`,
           },
         ];
       });
@@ -200,7 +200,7 @@ export default function ChatPage({
       body: JSON.stringify({
         email: userEmail,
         message: userText,
-        model: selectedModel,
+        model: "GPT",
         temperature,
         maxTokens,
       }),
@@ -210,6 +210,11 @@ export default function ChatPage({
         setIsTyping(false);
         const nodeReply = data?.nodeMessage || data?.reply || data?.message;
         if (data.success) {
+          if (Array.isArray(data.chatHistory) && data.chatHistory.length > 0) {
+            setMessages(data.chatHistory);
+            return;
+          }
+
           const replyMessage =
             typeof nodeReply === "string"
               ? {
@@ -351,66 +356,24 @@ export default function ChatPage({
             </div>
           </div>
 
-          {/* Model selector buttons */}
+          {/* GPT model channel */}
           <div className="bg-white border border-gray-150 p-5 rounded-2xl space-y-4 shadow-xs">
             <h3 className="font-mono text-[10px] font-black text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-2.5 flex items-center space-x-1.5">
               <Activity className="w-3.5 h-3.5 text-brand-neon-dark shrink-0 animate-pulse" />
-              <span>INTEL_MODEL_CHANNELS</span>
+              <span>INTEL_MODEL_CHANNEL</span>
             </h3>
-            <div className="grid grid-cols-1 gap-2.5">
-              {[
-                {
-                  id: "DEEPSEEK",
-                  name: "DeepSeek-R1",
-                  desc: "Decentralized analytical focus",
-                  badge: "COGNITIVE",
-                },
-                {
-                  id: "LLAMA-3",
-                  name: "Llama 3 Instruct",
-                  desc: "Systems alignment cluster",
-                  badge: "INSTRUCT",
-                },
-                {
-                  id: "QWEN-2.5",
-                  name: "Qwen 2.5 Coder",
-                  desc: "Language & logic engine",
-                  badge: "CODER",
-                },
-              ].map((m) => {
-                const active = selectedModel === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => setSelectedModel(m.id)}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between items-start select-none ${
-                      active
-                        ? "bg-black border-black text-white shadow-md active:scale-[0.98]"
-                        : "bg-gray-50 hover:bg-gray-100 border-gray-200 text-gray-800 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className="w-full flex justify-between items-center">
-                      <span className="font-mono text-xs font-black uppercase tracking-wide">
-                        {m.name}
-                      </span>
-                      <span
-                        className={`font-mono text-[8px] px-1.5 py-0.5 rounded-full font-bold ${
-                          active
-                            ? "bg-brand-neon text-black font-extrabold"
-                            : "bg-gray-200 text-gray-600 font-bold"
-                        }`}
-                      >
-                        {m.badge}
-                      </span>
-                    </div>
-                    <span
-                      className={`text-[10px] mt-1 ${active ? "text-gray-400" : "text-gray-500 font-medium"}`}
-                    >
-                      {m.desc}
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="p-3 rounded-xl border bg-black border-black text-white shadow-md flex flex-col justify-between items-start select-none">
+              <div className="w-full flex justify-between items-center">
+                <span className="font-mono text-xs font-black uppercase tracking-wide">
+                  GPT
+                </span>
+                <span className="font-mono text-[8px] px-1.5 py-0.5 rounded-full font-bold bg-brand-neon text-black font-extrabold">
+                  MAIN
+                </span>
+              </div>
+              <span className="text-[10px] mt-1 text-gray-400">
+                Primary GPT inference channel
+              </span>
             </div>
           </div>
 
@@ -448,29 +411,7 @@ export default function ChatPage({
                 </p>
               </div>
 
-              {/* Max tokens */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center font-mono text-[10px]">
-                  <span className="text-gray-500 uppercase tracking-wider">
-                    MAX_CYCLER_LIMIT (TOKENS)
-                  </span>
-                  <span className="text-brand-neon-dark font-black">
-                    {maxTokens}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="256"
-                  max="4096"
-                  step="256"
-                  value={maxTokens}
-                  onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                  className="w-full accent-brand-neon-dark bg-gray-100 rounded-lg appearance-none h-1 cursor-pointer"
-                />
-                <p className="text-[9px] text-gray-400 font-mono">
-                  Allocation constraint per query thread.
-                </p>
-              </div>
+            
             </div>
           </div>
 
@@ -550,7 +491,7 @@ export default function ChatPage({
                     {m.sender === "node" ? (
                       <>
                         <span className="text-brand-neon-dark uppercase tracking-wider font-extrabold">
-                          ⚡ {m.nodeId}
+                          {m.nodeId}
                         </span>
                         <span>•</span>
                         <span>{m.time}</span>
@@ -703,7 +644,7 @@ export default function ChatPage({
                   className="flex flex-col space-y-1.5 items-start pl-1"
                 >
                   <span className="text-[10px] font-mono text-gray-400 uppercase font-black">
-                    ⚡ Compiling decentralized tensors...
+                    Compiling decentralized tensors...
                   </span>
                   <div className="bg-gray-50 border border-gray-150 p-4 rounded-xl rounded-tl-none flex items-center space-x-2.5 text-xs font-mono text-gray-500 shadow-2xs">
                     <Loader2 className="w-4 h-4 text-brand-neon-dark animate-spin" />
@@ -761,7 +702,7 @@ export default function ChatPage({
                     onClick={() => setChatInput(p.text)}
                     className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-600 hover:text-gray-950 rounded-lg text-[10px] font-mono border border-gray-200 transition-all text-left cursor-pointer shadow-2xs"
                   >
-                    💡 {p.title}
+                    {p.title}
                   </button>
                 ))}
               </div>
@@ -801,3 +742,4 @@ export default function ChatPage({
     </div>
   );
 }
+
