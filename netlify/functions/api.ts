@@ -4,7 +4,6 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import serverless from "serverless-http";
-import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 import {
   Connection,
@@ -16,6 +15,7 @@ import {
 } from "@solana/web3.js";
 import bs58 from "bs58";
 import fs from "fs/promises";
+import OpenAI from "openai";
 
 export async function loadSystemPrompt(): Promise<string> {
   const filePath = path.join(process.cwd(), "system-prompt.txt");
@@ -121,6 +121,55 @@ function buildTranscriptFromHistory(history: any[]) {
   });
 
   return lines.length > 0 ? `Previous conversation:\n${lines.join("\n\n")}\n\nCurrent user message:` : "";
+}
+
+function buildUrl(baseUrl: string, pathName: string) {
+  try {
+    return new URL(pathName, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
+  } catch {
+    return new URL(pathName, "https://models.github.ai/inference/").toString();
+  }
+}
+
+function isUsableGeminiKey(apiKey: string | undefined) {
+  return Boolean(apiKey && /^AIza[0-9A-Za-z_-]+$/.test(apiKey.trim()));
+}
+
+async function getGitHubModelsResponse(messages: any[], temperature: number, maxTokens: number) {
+  const response = await fetch(buildUrl(GITHUB_MODELS_ENDPOINT, "chat/completions"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+    },
+    body: JSON.stringify({
+      model: GITHUB_MODELS_MODEL,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    }),
+  });
+
+  const responseBody = await response.text();
+  let parsed: any = null;
+
+  try {
+    parsed = responseBody ? JSON.parse(responseBody) : null;
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    const detail = parsed?.error?.message || parsed?.message || responseBody || response.statusText;
+    throw new Error(`GitHub Models request failed (${response.status}): ${detail}`);
+  }
+
+  const content = parsed?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("GitHub Models returned an empty response.");
+  }
+
+  return content;
 }
 
 async function sendDevnetTransfer(recipient: string, amount: number) {
@@ -772,12 +821,12 @@ app.post("/api/user/chat/respond", async (req, res) => {
     const startTime = Date.now();
 
     const systemCtx = "You are GPT running inside ComputeInfra. Deliver helpful, technically precise answers with clear reasoning and clean Markdown.";
-
+const endpoint = "https://models.github.ai/inference";
     if (githubToken) {
       try {
         console.log("Using GITHUB_TOKEN with OpenAI client for chat inference.");
         const client = new OpenAI({
-          baseURL: GITHUB_MODELS_ENDPOINT,
+          baseURL: endpoint,
           apiKey: githubToken,
         });
 
@@ -787,9 +836,8 @@ app.post("/api/user/chat/respond", async (req, res) => {
             ...priorModelMessages,
             { role: "user", content: message }
           ],
-          model: GITHUB_MODELS_MODEL,
+          model: "openai/gpt-4o-mini",
           temperature: tempVal,
-          max_tokens: maxTkns
         });
 
         responseText = response.choices[0]?.message?.content || "No inference response received from the GitHub models API.";
