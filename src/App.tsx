@@ -15,6 +15,7 @@ import PricingPlansModal from "./components/PricingPlansModal";
 import ChatPage from "./components/ChatPage";
 import BrowserPage from "./components/BrowserPage";
 import WalletPage from "./components/WalletPage";
+import Roadmap from "./components/Roadmap";
 
 export default function App() {
   const [currentView, setCurrentView] = useState<
@@ -351,6 +352,7 @@ export default function App() {
             {/* Section 8: Agency comparison cards column */}
             <WhyChooseUs onStartProject={() => setIsStartModalOpen(true)} />
 
+            <Roadmap />
             {/* Section 9: Structured bento grid benefit badges */}
             <BentoBenefits />
           </main>

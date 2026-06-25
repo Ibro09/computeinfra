@@ -176,18 +176,18 @@ export default function Footer({ onStartProject, onSwitchView }: FooterProps) {
               <ul className="space-y-2 font-mono text-[11px] uppercase text-slate-500">
                 <li>
                   <a
-                    href="https://twitter.com"
+                    href="https://x.com/c0mputeinfra"
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-white transition-colors block leading-none"
                   >
-                    TWITTER
+                    X
                   </a>
                 </li>
 
                 <li>
                   <a
-                    href="https://telegram.org"
+                    href="https://t.me/c0mputeinfra"
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-white transition-colors block leading-none"

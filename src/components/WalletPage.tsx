@@ -118,9 +118,12 @@ export default function WalletPage({
               id: String(w?.id ?? `withdraw-${index}`),
               timestamp: w?.timestamp ?? "",
               amount: Number(w?.amount ?? 0),
+              solAmount: Number(w?.solAmount ?? 0),
+              usdPerSol: Number(w?.usdPerSol ?? 0),
               txHash,
               address: w?.address ?? "",
               status: w?.status ?? "confirmed",
+              error: w?.error ?? "",
               type: txHash.includes("_CLAIM") ? "Harvest" : "Withdrawal",
             });
           });
@@ -378,12 +381,51 @@ export default function WalletPage({
       setWithdrawLoading(false);
 
       if (!res.ok || !data?.success) {
+        if (data?.newTx) {
+          setTransactions((prev) => [
+            {
+              id: String(data.newTx.id ?? `withdraw-${Date.now()}`),
+              timestamp: data.newTx.timestamp ?? new Date().toISOString(),
+              amount: Number(data.newTx.amount ?? amountNum),
+              solAmount: Number(data.newTx.solAmount ?? 0),
+              usdPerSol: Number(data.newTx.usdPerSol ?? 0),
+              txHash:
+                typeof data.newTx.txHash === "string" ? data.newTx.txHash : "",
+              address: data.newTx.address ?? trimmedAddress,
+              status: data.newTx.status ?? "failed",
+              error: data.newTx.error ?? data?.error ?? "",
+              type: "Withdrawal",
+            },
+            ...prev,
+          ]);
+        }
         setWithdrawError(data?.error || "Withdrawal failed.");
         return;
       }
 
-      const nextBalance = Number((walletBalance - amountNum).toFixed(6));
+      const nextBalance = Number(
+        (typeof data.balance === "number"
+          ? data.balance
+          : walletBalance - amountNum
+        ).toFixed(6),
+      );
       onUpdateClaimedBalance(nextBalance);
+
+      if (data.newTx) {
+        const newTx = {
+          id: String(data.newTx.id ?? `withdraw-${Date.now()}`),
+          timestamp: data.newTx.timestamp ?? new Date().toISOString(),
+          amount: Number(data.newTx.amount ?? amountNum),
+          solAmount: Number(data.newTx.solAmount ?? 0),
+          usdPerSol: Number(data.newTx.usdPerSol ?? 0),
+          txHash: typeof data.newTx.txHash === "string" ? data.newTx.txHash : "",
+          address: data.newTx.address ?? trimmedAddress,
+          status: data.newTx.status ?? "confirmed",
+          error: data.newTx.error ?? "",
+          type: "Withdrawal",
+        };
+        setTransactions((prev) => [newTx, ...prev]);
+      }
 
       setWithdrawTerminalOutput((prev) => [
         ...prev,
@@ -393,11 +435,7 @@ export default function WalletPage({
       setWithdrawSuccess(true);
       setWithdrawAmount("");
 
-      try {
-        await fetchWalletProfile();
-      } catch {
-        // ignore refresh errors and keep the UI stable
-      }
+      setTimeout(fetchWalletProfile, 500);
     } catch (err) {
       clearInterval(interval);
       setWithdrawLoading(false);
@@ -502,7 +540,7 @@ export default function WalletPage({
                         browser compute rewards automatically stream directly to
                         this balance on every block execution at{" "}
                         <span className="font-mono text-teal-600 font-extrabold">
-                          $0.000105
+                          ~$5.00/day
                         </span>{" "}
                         per block. Under standard consensus protocol, no
                         separate manual credit claims are needed.
@@ -620,6 +658,17 @@ export default function WalletPage({
                           const txHash =
                             typeof tx?.txHash === "string" ? tx.txHash : "";
                           const txAmount = Number(tx?.amount ?? 0);
+                          const txStatus =
+                            typeof tx?.status === "string"
+                              ? tx.status
+                              : "confirmed";
+                          const txSolAmount = Number(tx?.solAmount ?? 0);
+                          const txError =
+                            typeof tx?.error === "string" ? tx.error : "";
+                          const isDebit =
+                            txType === "Payment" ||
+                            (txType === "Withdrawal" &&
+                              txStatus === "confirmed");
                           const txRecipient =
                             typeof tx?.recipient === "string"
                               ? tx.recipient
@@ -652,9 +701,22 @@ export default function WalletPage({
                                   >
                                     {txType}
                                   </span>
+                                  <span
+                                    className={`text-[8.5px] font-mono font-black px-1.5 py-0.2 rounded border uppercase ${
+                                      txStatus === "confirmed"
+                                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                        : txStatus === "failed"
+                                          ? "bg-rose-50 text-rose-700 border-rose-200"
+                                          : txStatus === "processing"
+                                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                                            : "bg-amber-50 text-amber-700 border-amber-200"
+                                    }`}
+                                  >
+                                    {txStatus}
+                                  </span>
                                 </div>
                                 <p className="text-[9.5px] font-mono text-gray-400 font-semibold truncate max-w-xs">
-                                  {txHash}
+                                  {txHash || "Awaiting transaction signature"}
                                 </p>
 
                                 {txRecipient && (
@@ -673,6 +735,19 @@ export default function WalletPage({
                                     </span>
                                   </p>
                                 )}
+                                {txType === "Withdrawal" && txSolAmount > 0 && (
+                                  <p className="text-[9px] text-gray-500 font-mono">
+                                    SOL Amount:{" "}
+                                    <span className="font-bold font-sans">
+                                      {txSolAmount.toFixed(9)}
+                                    </span>
+                                  </p>
+                                )}
+                                {txError && (
+                                  <p className="text-[9px] text-rose-600 font-sans font-bold max-w-xs">
+                                    {txError}
+                                  </p>
+                                )}
 
                                 <p className="text-[9px] text-gray-400 font-sans font-semibold">
                                   {txTimestamp}
@@ -682,27 +757,24 @@ export default function WalletPage({
                                 <span
                                   className={`font-mono font-bold px-2 py-0.5 rounded border ${
                                     txType === "Payment" ||
-                                    txType === "Withdrawal"
+                                    (txType === "Withdrawal" && isDebit)
                                       ? "text-rose-600 bg-rose-50 border-rose-100"
                                       : "text-emerald-600 bg-emerald-50 border-emerald-100"
                                   }`}
                                 >
-                                  {txType === "Payment" ||
-                                  txType === "Withdrawal"
-                                    ? "-"
-                                    : "+"}
+                                  {isDebit ? "-" : txStatus === "failed" ? "" : "+"}
                                   ${txAmount.toFixed(6)}
                                 </span>
 
-                                {txType === "Withdrawal" && (
+                                {txType === "Withdrawal" && txHash && (
                                   <a
-                                    href={`https://solscan.io/tx/${txHash}?cluster=devnet`}
+                                    href={`https://solscan.io/tx/${txHash}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-[9px] text-blue-500 hover:underline flex items-center space-x-0.5"
-                                    title="Check Solana Devnet Explorer link"
+                                    title="Check Solana Explorer link"
                                   >
-                                    <span>Verify on Devnet</span>
+                                    <span>Verify on Solscan</span>
                                     <ExternalLink className="w-2.5 h-2.5" />
                                   </a>
                                 )}

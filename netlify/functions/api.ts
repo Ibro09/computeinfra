@@ -15,7 +15,6 @@ import {
 } from "@solana/web3.js";
 import bs58 from "bs58";
 import fs from "fs/promises";
-import OpenAI from "openai";
 
 export async function loadSystemPrompt(): Promise<string> {
   const filePath = path.join(process.cwd(), "system-prompt.txt");
@@ -37,7 +36,7 @@ let mongoConnected = false;
 
 // Standby memory store for mock fallback
 let memoryDatabase: Record<string, any> = {};
-const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
+const SOLANA_RPC_URL = 'https://api.mainnet-beta.solana.com'; 
 const SOLANA_PRIVATE_KEY = (process.env.SOLANA_PRIVATE_KEY || process.env.PRIVATE_KEY || "").trim();
 
 function hashPassword(password: string) {
@@ -89,8 +88,9 @@ function getDevnetPayer() {
 }
 
 const GITHUB_TOKEN = (process.env.GITHUB_TOKEN || "").trim();
-const GITHUB_MODELS_ENDPOINT = process.env.GITHUB_MODELS_ENDPOINT || "https://models.github.ai/inference";
-const GITHUB_MODELS_MODEL = process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o-mini";
+const GITHUB_MODELS_ENDPOINT = "https://models.github.ai/inference";
+const GITHUB_MODELS_MODEL ="openai/gpt-4o-mini";
+const USD_PER_SOL = 60;
 
 
 
@@ -172,7 +172,7 @@ async function getGitHubModelsResponse(messages: any[], temperature: number, max
   return content;
 }
 
-async function sendDevnetTransfer(recipient: string, amount: number) {
+async function sendSolanaTransfer(recipient: string, solAmount: number) {
   const payer = getDevnetPayer();
   if (!payer) {
     return { success: false, reason: "No Solana private key configured in environment variables." };
@@ -181,7 +181,7 @@ async function sendDevnetTransfer(recipient: string, amount: number) {
   try {
     const connection = new Connection(SOLANA_RPC_URL, "confirmed");
     const recipientPublicKey = new PublicKey(recipient);
-    const lamports = Math.round(amount * LAMPORTS_PER_SOL);
+    const lamports = Math.round(solAmount * LAMPORTS_PER_SOL);
 
     const transaction = new Transaction().add(
       SystemProgram.transfer({
@@ -200,7 +200,7 @@ async function sendDevnetTransfer(recipient: string, amount: number) {
     await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight });
     return { success: true, signature };
   } catch (err: any) {
-    console.warn("[solana] transfer failed, falling back to local withdrawal record.", err.message);
+    console.warn("[solana] transfer failed.", err.message);
     return { success: false, reason: err.message };
   }
 }
@@ -246,10 +246,15 @@ const UserSchema = new mongoose.Schema({
   withdrawals: [{
     id: String,
     amount: Number,
+    solAmount: Number,
+    usdPerSol: Number,
     address: String,
     timestamp: { type: String },
+    updatedAt: { type: String },
+    confirmedAt: { type: String },
     txHash: String,
-    status: { type: String, default: "confirmed" }
+    status: { type: String, default: "pending" },
+    error: String
   }],
   payments: [{
     id: String,
@@ -662,8 +667,8 @@ app.post("/api/user/withdraw", async (req, res) => {
       });
     }
 
-    const withdrawVal = Number(amount);
-    if (isNaN(withdrawVal) || withdrawVal <= 0) {
+    const withdrawUsd = Number(amount);
+    if (isNaN(withdrawUsd) || withdrawUsd <= 0) {
       return res.status(400).json({
         success: false,
         error: "Invalid amount."
@@ -671,63 +676,178 @@ app.post("/api/user/withdraw", async (req, res) => {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
-    let user = null;
-
-    if (mongoConnected) {
-      user = await MongoUser.findOne({ email: normalizedEmail });
-    } else {
-      user = await dbGetUser(normalizedEmail);
-    }
+    const canUseMongo = await ensureMongoConnected();
+    const user = canUseMongo
+      ? await MongoUser.findOne({ email: normalizedEmail })
+      : await dbGetUser(normalizedEmail);
 
     if (!user) {
       return res.status(404).json({ success: false, error: "User not found" });
     }
 
-    if (user.balance < withdrawVal) {
+    if (user.balance < withdrawUsd) {
       return res.status(400).json({
         success: false,
         error: "Insufficient balance"
       });
     }
 
-    let txHash = `SOL_TX_${Math.random().toString(36).substring(2, 10).toUpperCase()}_DEVNET_WITHDRAW`;
-    let txStatus = "confirmed";
-
-    const transferResult = await sendDevnetTransfer(address, withdrawVal);
-    if (transferResult.success && transferResult.signature) {
-      txHash = `DEVNET_${transferResult.signature}`;
-    } else {
-      console.info("[withdraw] devnet transfer unavailable; saving local withdrawal record instead.");
-      txStatus = "confirmed";
-    }
-
-    const newWithdrawal = {
-      id: `TX-${Date.now()}`,
-      amount: withdrawVal,
+    const withdrawSol = Number((withdrawUsd / USD_PER_SOL).toFixed(9));
+    const withdrawalId = `TX-${Date.now()}`;
+    const now = new Date().toISOString();
+    const pendingWithdrawal = {
+      id: withdrawalId,
+      amount: Number(withdrawUsd.toFixed(6)),
+      solAmount: withdrawSol,
+      usdPerSol: USD_PER_SOL,
       address,
-      timestamp: new Date().toISOString(),
-      txHash,
-      status: txStatus
+      timestamp: now,
+      updatedAt: now,
+      confirmedAt: "",
+      txHash: "",
+      status: "pending",
+      error: "",
     };
 
-    const nextBalance = Number((user.balance - withdrawVal).toFixed(6));
-    user.balance = nextBalance;
-    user.withdrawals = [newWithdrawal, ...(user.withdrawals || [])];
+    const setWithdrawalStatus = async (status: "processing" | "confirmed" | "failed", patch: Record<string, any> = {}) => {
+      const updatedAt = new Date().toISOString();
 
-    if (mongoConnected) {
-      if (typeof user.save === "function") {
-        await user.save();
+      if (canUseMongo) {
+        await MongoUser.updateOne(
+          { email: normalizedEmail, "withdrawals.id": withdrawalId },
+          {
+            $set: {
+              "withdrawals.$.status": status,
+              "withdrawals.$.updatedAt": updatedAt,
+              ...Object.fromEntries(
+                Object.entries(patch).map(([key, value]) => [`withdrawals.$.${key}`, value]),
+              ),
+            },
+          },
+        );
+      } else {
+        const currentUser = await dbGetUser(normalizedEmail);
+        const withdrawals = (currentUser.withdrawals || []).map((withdrawal: any) =>
+          withdrawal.id === withdrawalId
+            ? { ...withdrawal, status, updatedAt, ...patch }
+            : withdrawal,
+        );
+        await dbUpdateUser(normalizedEmail, { withdrawals });
       }
+    };
+
+    if (canUseMongo) {
+      await MongoUser.updateOne(
+        { email: normalizedEmail },
+        {
+          $push: {
+            withdrawals: {
+              $each: [pendingWithdrawal],
+              $position: 0,
+            },
+          },
+        },
+      );
     } else {
       await dbUpdateUser(normalizedEmail, {
+        withdrawals: [pendingWithdrawal, ...(user.withdrawals || [])],
+      });
+    }
+
+    await setWithdrawalStatus("processing");
+
+    const transferResult = await sendSolanaTransfer(address, withdrawSol);
+    if (!transferResult.success || !transferResult.signature) {
+      await setWithdrawalStatus("failed", {
+        error: transferResult.reason || "Solana transfer failed.",
+      });
+      return res.status(502).json({
+        success: false,
+        newTx: {
+          ...pendingWithdrawal,
+          status: "failed",
+          error: transferResult.reason || "Solana transfer failed.",
+        },
+        error: transferResult.reason || "Solana transfer failed. Balance was not changed.",
+      });
+    }
+
+    const confirmedAt = new Date().toISOString();
+    const txHash = transferResult.signature;
+
+    const nextBalance = Number((user.balance - withdrawUsd).toFixed(6));
+
+    if (canUseMongo) {
+      const savedUser = await MongoUser.findOneAndUpdate(
+        {
+          email: normalizedEmail,
+          balance: { $gte: withdrawUsd },
+          "withdrawals.id": withdrawalId,
+        },
+        {
+          $inc: { balance: -withdrawUsd },
+          $set: {
+            "withdrawals.$.status": "confirmed",
+            "withdrawals.$.txHash": txHash,
+            "withdrawals.$.updatedAt": confirmedAt,
+            "withdrawals.$.confirmedAt": confirmedAt,
+            "withdrawals.$.error": "",
+          },
+        },
+        { returnDocument: "after" },
+      );
+
+      if (!savedUser) {
+        await setWithdrawalStatus("failed", {
+          txHash,
+          error: "Transfer sent, but database balance update failed.",
+        });
+        return res.status(409).json({
+          success: false,
+          error: "Withdrawal sent, but the account balance changed before the database could be updated. Please refresh.",
+        });
+      }
+
+      return res.json({
+        success: true,
+        user: savedUser.toObject ? savedUser.toObject() : savedUser,
+        newTx: {
+          ...pendingWithdrawal,
+          status: "confirmed",
+          txHash,
+          updatedAt: confirmedAt,
+          confirmedAt,
+        },
+        balance: Number(savedUser.balance ?? nextBalance),
+      });
+    } else {
+      const currentUser = await dbGetUser(normalizedEmail);
+      await dbUpdateUser(normalizedEmail, {
         balance: nextBalance,
-        withdrawals: user.withdrawals
+        withdrawals: (currentUser.withdrawals || []).map((withdrawal: any) =>
+          withdrawal.id === withdrawalId
+            ? {
+                ...withdrawal,
+                status: "confirmed",
+                txHash,
+                updatedAt: confirmedAt,
+                confirmedAt,
+                error: "",
+              }
+            : withdrawal,
+        )
       });
     }
 
     return res.json({
       success: true,
-      newTx: newWithdrawal,
+      newTx: {
+        ...pendingWithdrawal,
+        status: "confirmed",
+        txHash,
+        updatedAt: confirmedAt,
+        confirmedAt,
+      },
       balance: nextBalance
     });
 
@@ -812,8 +932,9 @@ app.post("/api/user/chat/respond", async (req, res) => {
 
     const githubToken = GITHUB_TOKEN;
     const apiKey = process.env.GEMINI_API_KEY;
+    const canUseGemini = isUsableGeminiKey(apiKey);
 
-    if (!githubToken && !apiKey) {
+    if (!githubToken && !canUseGemini) {
       console.warn("Neither GITHUB_TOKEN nor GEMINI_API_KEY environment variable is set. Using local mock responses.");
     }
 
@@ -821,29 +942,21 @@ app.post("/api/user/chat/respond", async (req, res) => {
     const startTime = Date.now();
 
     const systemCtx = "You are GPT running inside ComputeInfra. Deliver helpful, technically precise answers with clear reasoning and clean Markdown.";
-const endpoint = "https://models.github.ai/inference";
     if (githubToken) {
       try {
-        console.log("Using GITHUB_TOKEN with OpenAI client for chat inference.");
-        const client = new OpenAI({
-          baseURL: endpoint,
-          apiKey: githubToken,
-        });
-
-        const response = await client.chat.completions.create({
-          messages: [
+        console.log("Using GITHUB_TOKEN with GitHub Models for chat inference.");
+        responseText = await getGitHubModelsResponse(
+          [
             { role: "system", content: `${systemCtx} Always answer user questions comprehensively and accurately. Do NOT output mock metadata headers inside your final output body. Output directly in clean, readable Markdown syntax.` },
             ...priorModelMessages,
             { role: "user", content: message }
           ],
-          model: "openai/gpt-4o-mini",
-          temperature: tempVal,
-        });
-
-        responseText = response.choices[0]?.message?.content || "No inference response received from the GitHub models API.";
+          tempVal,
+          maxTkns,
+        );
       } catch (ghErr: any) {
         console.error("GitHub inference call failed, attempting Gemini fallback", ghErr);
-        if (apiKey) {
+        if (canUseGemini) {
           try {
             const response = await aiGenAI.models.generateContent({
               model: "gemini-3.5-flash",
@@ -862,7 +975,7 @@ const endpoint = "https://models.github.ai/inference";
           responseText = `[Inference Fallback due to GitHub inference error: ${ghErr.message}]\n\nPlease configure GITHUB_TOKEN or GEMINI_API_KEY correctly.`;
         }
       }
-    } else if (apiKey) {
+    } else if (canUseGemini) {
       try {
         const response = await aiGenAI.models.generateContent({
           model: "gemini-3.5-flash",

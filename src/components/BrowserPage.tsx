@@ -99,6 +99,11 @@ export default function BrowserPage({
   ]);
 
   const logEndRef = useRef<HTMLDivElement>(null);
+  const updateEarningsRef = useRef(onUpdateEarnings);
+
+  useEffect(() => {
+    updateEarningsRef.current = onUpdateEarnings;
+  }, [onUpdateEarnings]);
 
   useEffect(() => {
     setDisplayAddress(userAddress || "");
@@ -121,26 +126,6 @@ export default function BrowserPage({
   useEffect(() => {
     if (!isRunning) return;
 
-    // Fast metric accumulations
-    const statsTimer = setInterval(() => {
-      const addedTokens = Math.floor(Math.random() * 190) + 60;
-      const currentSpeed = Math.floor(Math.random() * 250) + 1240;
-      const addedYield = Number((addedTokens * 0.000105).toFixed(6));
-      const completedJob = Math.random() > 0.65 ? 1 : 0;
-
-      onUpdateEarnings(addedYield, completedJob, addedTokens);
-
-      setStats((prev) => {
-        return {
-          jobsCompleted: prev.jobsCompleted + completedJob,
-          tokensProcessed: prev.tokensProcessed + addedTokens,
-          yieldEarnings: Number((prev.yieldEarnings + addedYield).toFixed(6)),
-          speed: currentSpeed,
-        };
-      });
-    }, 1000);
-
-    // Dynamic logging stream
     const logsTemplates = [
       {
         text: "Successfully downloaded model shard [c0a8] weights from Peer-ID 92f1",
@@ -176,6 +161,56 @@ export default function BrowserPage({
       },
     ];
 
+    const earningIntervalMs = 20 * 60 * 1000;
+    const minTaskDelayMs = (24 * 60 * 60 * 1000) / 5;
+    const maxTaskDelayMs = (24 * 60 * 60 * 1000) / 3;
+    const earningPerWindow = Number((5 / 72).toFixed(6));
+
+    // Earnings accrue once per 20-minute window, targeting about $5 per full day.
+    const statsTimer = setInterval(() => {
+      const addedTokens = Math.floor(Math.random() * 12) + 1;
+      const currentSpeed = Math.floor(Math.random() * 90) + 120;
+      const addedYield = earningPerWindow;
+
+      updateEarningsRef.current(addedYield, 0, addedTokens);
+
+      setStats((prev) => {
+        return {
+          jobsCompleted: prev.jobsCompleted,
+          tokensProcessed: prev.tokensProcessed + addedTokens,
+          yieldEarnings: Number((prev.yieldEarnings + addedYield).toFixed(6)),
+          speed: currentSpeed,
+        };
+      });
+    }, earningIntervalMs);
+
+    let taskTimer: ReturnType<typeof setTimeout>;
+
+    const scheduleNextTask = () => {
+      const delay =
+        Math.random() * (maxTaskDelayMs - minTaskDelayMs) + minTaskDelayMs;
+
+      taskTimer = setTimeout(() => {
+        updateEarningsRef.current(0, 1, 0);
+        setStats((prev) => ({
+          ...prev,
+          jobsCompleted: prev.jobsCompleted + 1,
+        }));
+        setLogs((prev) => [
+          ...prev,
+          {
+            time: new Date().toTimeString().split(" ")[0],
+            text: "Sparse compute task completed. Work proof accepted by peer-mesh.",
+            category: "ledger" as const,
+          },
+        ].slice(-40));
+        scheduleNextTask();
+      }, delay);
+    };
+
+    scheduleNextTask();
+
+    // Dynamic logging stream
     const logsTimer = setInterval(() => {
       const template =
         logsTemplates[Math.floor(Math.random() * logsTemplates.length)];
@@ -197,6 +232,7 @@ export default function BrowserPage({
     return () => {
       clearInterval(statsTimer);
       clearInterval(logsTimer);
+      clearTimeout(taskTimer);
     };
   }, [isRunning]);
 
