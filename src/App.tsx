@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
 import LogoBar from "./components/LogoBar";
@@ -59,92 +59,59 @@ export default function App() {
     return Number(localStorage.getItem("compute_infra_claimed_balance") || "0");
   });
 
-  // Load database info if user is authenticated at mount
-  useEffect(() => {
-    if (isLoggedIn && userEmail) {
-      fetch("/api/auth/register-or-login", {
+  const applyUserSnapshot = useCallback((dbUser: any) => {
+    setCumulativeEarnings(dbUser.earnings ?? 0);
+    setGlobalJobsCompleted(dbUser.jobsCompleted ?? 0);
+    setGlobalTokensProcessed(dbUser.tokensProcessed ?? 0);
+    setClaimedBalance(dbUser.balance ?? 0);
+
+    const nextAddress = dbUser.address ?? "";
+    setUserAddress(nextAddress);
+    localStorage.setItem("compute_infra_user_address", nextAddress);
+    localStorage.setItem(
+      "compute_infra_cumulative_earnings",
+      (dbUser.earnings ?? 0).toString(),
+    );
+    localStorage.setItem(
+      "compute_infra_jobs_completed",
+      (dbUser.jobsCompleted ?? 0).toString(),
+    );
+    localStorage.setItem(
+      "compute_infra_tokens_processed",
+      (dbUser.tokensProcessed ?? 0).toString(),
+    );
+    localStorage.setItem(
+      "compute_infra_claimed_balance",
+      (dbUser.balance ?? 0).toString(),
+    );
+  }, []);
+
+  const refreshUserProfile = useCallback(async () => {
+    if (!isLoggedIn || !userEmail) return;
+
+    try {
+      const response = await fetch("/api/auth/register-or-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: userEmail }),
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.success && data.user) {
-            setCumulativeEarnings(data.user.earnings ?? 0);
-            setGlobalJobsCompleted(data.user.jobsCompleted ?? 0);
-            setGlobalTokensProcessed(data.user.tokensProcessed ?? 0);
-            setClaimedBalance(data.user.balance ?? 0);
-            const nextAddress = data.user.address ?? "";
-            setUserAddress(nextAddress);
-            localStorage.setItem("compute_infra_user_address", nextAddress);
-            localStorage.setItem(
-              "compute_infra_cumulative_earnings",
-              (data.user.earnings ?? 0).toString(),
-            );
-            localStorage.setItem(
-              "compute_infra_jobs_completed",
-              (data.user.jobsCompleted ?? 0).toString(),
-            );
-            localStorage.setItem(
-              "compute_infra_tokens_processed",
-              (data.user.tokensProcessed ?? 0).toString(),
-            );
-            localStorage.setItem(
-              "compute_infra_claimed_balance",
-              (data.user.balance ?? 0).toString(),
-            );
-          }
-        })
-        .catch((e) =>
-          console.warn(
-            "Endpoint offline fallback (using local persistent states).",
-            e.message,
-          ),
-        );
+      });
+      const data = await response.json();
+
+      if (data.success && data.user) {
+        applyUserSnapshot(data.user);
+      }
+    } catch (e: any) {
+      console.warn(
+        "Endpoint offline fallback (using local persistent states).",
+        e.message,
+      );
     }
-  }, [isLoggedIn, userEmail]);
+  }, [applyUserSnapshot, isLoggedIn, userEmail]);
 
-  // Periodically synchronizing user information (earnings, jobs, tokens, balance) with MongoDB
+  // Load database info when the authenticated identity changes.
   useEffect(() => {
-    if (!isLoggedIn || !userEmail) return;
-
-    const interval = setInterval(() => {
-      fetch("/api/user/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: userEmail,
-          earnings: cumulativeEarnings,
-          jobsCompleted: globalJobsCompleted,
-          tokensProcessed: globalTokensProcessed,
-          balance: claimedBalance,
-        }),
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.success && data.user) {
-            // Sync standing balance changes down
-            setClaimedBalance(data.user.balance ?? 0);
-            localStorage.setItem(
-              "compute_infra_claimed_balance",
-              (data.user.balance ?? 0).toString(),
-            );
-          }
-        })
-        .catch((e) =>
-          console.warn("Auto-sync background endpoint unreachable", e.message),
-        );
-    }, 4500);
-
-    return () => clearInterval(interval);
-  }, [
-    isLoggedIn,
-    userEmail,
-    cumulativeEarnings,
-    globalJobsCompleted,
-    globalTokensProcessed,
-    claimedBalance,
-  ]);
+    refreshUserProfile();
+  }, [refreshUserProfile]);
 
   const persistUserState = async (
     nextEarnings: number,
@@ -242,29 +209,7 @@ export default function App() {
     localStorage.setItem("compute_infra_user_email", email);
 
     if (dbUser) {
-      setCumulativeEarnings(dbUser.earnings ?? 0);
-      setGlobalJobsCompleted(dbUser.jobsCompleted ?? 0);
-      setGlobalTokensProcessed(dbUser.tokensProcessed ?? 0);
-      setClaimedBalance(dbUser.balance ?? 0);
-      const nextAddress = dbUser.address ?? "";
-      setUserAddress(nextAddress);
-      localStorage.setItem("compute_infra_user_address", nextAddress);
-      localStorage.setItem(
-        "compute_infra_cumulative_earnings",
-        (dbUser.earnings ?? 0).toString(),
-      );
-      localStorage.setItem(
-        "compute_infra_jobs_completed",
-        (dbUser.jobsCompleted ?? 0).toString(),
-      );
-      localStorage.setItem(
-        "compute_infra_tokens_processed",
-        (dbUser.tokensProcessed ?? 0).toString(),
-      );
-      localStorage.setItem(
-        "compute_infra_claimed_balance",
-        (dbUser.balance ?? 0).toString(),
-      );
+      applyUserSnapshot(dbUser);
     }
   };
 
@@ -291,6 +236,13 @@ export default function App() {
     setIsStartModalOpen(true);
   };
 
+  const handleSwitchView = (view: "landing" | "chat" | "browser" | "wallet") => {
+    setCurrentView(view);
+    if (view === "wallet") {
+      refreshUserProfile();
+    }
+  };
+
   return (
     <div className="relative min-h-screen bg-brand-light text-brand-dark overflow-x-hidden selection:bg-brand-neon selection:text-black">
       {/* Primary header overlay */}
@@ -304,7 +256,7 @@ export default function App() {
         }
         onStartProject={() => setIsStartModalOpen(true)}
         currentView={currentView}
-        onSwitchView={(view) => setCurrentView(view)}
+        onSwitchView={handleSwitchView}
         isLoggedIn={isLoggedIn}
         userEmail={userEmail}
         cumulativeEarnings={cumulativeEarnings}
@@ -360,7 +312,7 @@ export default function App() {
           {/* Section 10: Multi-visual Contact forms and floors */}
           <Footer
             onStartProject={() => setIsStartModalOpen(true)}
-            onSwitchView={(view) => setCurrentView(view)}
+            onSwitchView={handleSwitchView}
           />
         </>
       ) : currentView === "chat" ? (
@@ -399,7 +351,7 @@ export default function App() {
           onToggleNode={() => setIsNodeRunning((prev) => !prev)}
           onUpdateEarnings={handleUpdateEarnings}
           onBackToLanding={() => setCurrentView("landing")}
-          onSwitchView={(view) => setCurrentView(view)}
+          onSwitchView={handleSwitchView}
           walletBalance={claimedBalance}
           userAddress={userAddress}
           onUpdateClaimedBalance={(newBal) => {

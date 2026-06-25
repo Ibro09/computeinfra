@@ -526,7 +526,7 @@ export default function WalletPage({
                         </span>
                         <span className="bg-emerald-50 text-emerald-700 text-[8px] font-mono font-bold px-1.5 py-0.2 rounded border border-emerald-200 uppercase tracking-tight flex items-center space-x-1">
                           <span className="w-1 h-1 bg-emerald-500 rounded-full animate-ping shrink-0" />
-                          <span>Real-Time Auto-Compounding Live</span>
+                          <span>Action-Synced Ledger</span>
                         </span>
                       </div>
                       <span className="text-4xl sm:text-5xl font-mono font-black text-gray-950 tracking-tight block mt-3">
@@ -537,8 +537,8 @@ export default function WalletPage({
                       <p className="text-gray-500 text-[11px] font-sans mt-2.5 font-semibold leading-relaxed">
                         Your standing wallet reserves are hosted and
                         cryptographically signed on the Solana network. All
-                        browser compute rewards automatically stream directly to
-                        this balance on every block execution at{" "}
+                        browser compute rewards are applied when you run a valid
+                        claim, transfer, withdrawal, or wallet refresh at{" "}
                         <span className="font-mono text-teal-600 font-extrabold">
                           ~$5.00/day
                         </span>{" "}

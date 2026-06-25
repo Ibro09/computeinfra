@@ -1,4 +1,5 @@
-import { ChevronRight, ArrowRight, Play } from "lucide-react";
+import { useState } from "react";
+import { ChevronRight, ArrowRight, Play, Copy, Check } from "lucide-react";
 import { motion, useScroll, useTransform } from "motion/react";
 
 function AnimatedChevronTrack({
@@ -48,11 +49,23 @@ export default function Hero({ onStartProject, onViewPricing }: HeroProps) {
   const leftMove = useTransform(scrollY, [0, 800], [0, -100]);
   const rightMove = useTransform(scrollY, [0, 800], [0, 100]);
   const playRotate = useTransform(scrollY, [0, 1000], [0, 360]);
+  const [copiedToken, setCopiedToken] = useState(false);
+  const tokenAddress = "HvUTpnz6u7MZRBCxH1ZLXVq8cQYx86DSa1d7q8BPpump";
 
   const scrollToServices = () => {
     const element = document.querySelector("#services");
     if (element) {
       element.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  const copyTokenAddress = async () => {
+    try {
+      await navigator.clipboard.writeText(tokenAddress);
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 2000);
+    } catch (error) {
+      console.warn("Unable to copy token address:", error);
     }
   };
 
@@ -132,6 +145,29 @@ export default function Hero({ onStartProject, onViewPricing }: HeroProps) {
             <span className="font-mono text-[10px] font-bold tracking-wider uppercase text-gray-500">
               THE FUTURE OF AI INFRASTRUCTURE
             </span>
+          </div>
+          <div className="mx-auto flex max-w-full justify-center px-2">
+            <div className="flex w-full max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border border-gray-200 bg-white py-1.5 pl-3 pr-1.5 shadow-xs sm:w-auto sm:max-w-2xl">
+              <span className="shrink-0 font-mono text-[9px] font-black uppercase tracking-wider text-brand-neon-dark">
+                TOKEN
+              </span>
+              <span className="min-w-0 flex-1 truncate text-left font-mono text-[10px] font-bold text-gray-700 sm:text-[11px]">
+                {tokenAddress}
+              </span>
+              <button
+                type="button"
+                onClick={copyTokenAddress}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-gray-50 text-gray-500 transition-all hover:border-brand-neon-dark hover:bg-brand-neon hover:text-black active:scale-95"
+                title={copiedToken ? "Copied token address" : "Copy token address"}
+                aria-label={copiedToken ? "Copied token address" : "Copy token address"}
+              >
+                {copiedToken ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
