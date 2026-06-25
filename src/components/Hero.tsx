@@ -50,7 +50,7 @@ export default function Hero({ onStartProject, onViewPricing }: HeroProps) {
   const rightMove = useTransform(scrollY, [0, 800], [0, 100]);
   const playRotate = useTransform(scrollY, [0, 1000], [0, 360]);
   const [copiedToken, setCopiedToken] = useState(false);
-  const tokenAddress = "HvUTpnz6u7MZRBCxH1ZLXVq8cQYx86DSa1d7q8BPpump";
+  const tokenAddress = "H9raLgfa4zwcM36g3o9VGvdkxWE74r9ywLtLa8ddpump";
 
   const scrollToServices = () => {
     const element = document.querySelector("#services");
